@@ -1,0 +1,796 @@
+/* ============================================================
+   Weather AI
+   Instrument readings in machine type, interpretation in book
+   type. The condition accent is the only saturated colour on
+   the page and is set from the live weather code.
+   ============================================================ */
+
+:root {
+  /* Ground: cool chart paper, deliberately not cream. */
+  --paper:      #e9ecf0;
+  --paper-deep: #dde2e9;
+  --card:       #fdfdfe;
+  --ink:        #141a2e;
+  --ink-soft:   #5a6478;
+  --ink-faint:  #8a93a4;
+  --rule:       #c9d0da;
+  --rule-soft:  #dfe4ec;
+
+  /* Overwritten per reading by app.js. Slate is the resting value. */
+  --accent:      #7a8699;
+  --accent-wash: rgba(122, 134, 153, 0.10);
+
+  --danger: #a8322e;
+
+  --sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --serif: Georgia, "Iowan Old Style", "Palatino Linotype", Palatino, "Times New Roman", serif;
+  --mono: ui-monospace, "Cascadia Mono", "SF Mono", "Segoe UI Mono", Consolas, "Liberation Mono", monospace;
+
+  --step: 4px;
+  --radius: 3px;
+  --ease: cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+
+html { -webkit-text-size-adjust: 100%; }
+
+body {
+  margin: 0;
+  background-color: var(--paper);
+  /* A faint chart-paper grid; the instrument surface the readings sit on. */
+  background-image:
+    linear-gradient(to right, rgba(20, 26, 46, 0.035) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(20, 26, 46, 0.035) 1px, transparent 1px);
+  background-size: 28px 28px;
+  color: var(--ink);
+  font-family: var(--sans);
+  font-size: 16px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px; height: 1px;
+  margin: -1px; padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+.shell {
+  max-width: 940px;
+  margin: 0 auto;
+  padding: 40px 24px 64px;
+}
+
+/* Focus: one visible treatment everywhere, never removed. */
+:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 3px;
+  border-radius: 2px;
+}
+
+/* ---------------- Masthead ---------------- */
+
+.masthead {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding-bottom: 18px;
+  border-bottom: 1px solid var(--rule);
+}
+
+.masthead__mark {
+  display: grid;
+  place-items: center;
+  width: 38px; height: 38px;
+  flex: none;
+  color: var(--card);
+  background: var(--ink);
+  border-radius: 50%;
+}
+
+.masthead__title {
+  margin: 0;
+  font-size: 19px;
+  font-weight: 650;
+  letter-spacing: -0.025em;
+  line-height: 1.1;
+}
+
+.masthead__title span {
+  color: var(--ink-faint);
+  font-weight: 450;
+}
+
+.masthead__tag {
+  margin: 3px 0 0;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+}
+
+/* ---------------- Intro ---------------- */
+
+.intro { padding: 34px 0 26px; }
+
+.intro__lede {
+  margin: 0;
+  max-width: 30ch;
+  font-family: var(--serif);
+  font-size: clamp(22px, 4.4vw, 31px);
+  line-height: 1.32;
+  letter-spacing: -0.011em;
+  color: var(--ink);
+}
+
+/* ---------------- Search ---------------- */
+
+.search { padding-bottom: 30px; }
+
+.search__form {
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+  max-width: 520px;
+}
+
+.search__field { flex: 1 1 auto; min-width: 0; }
+
+.search__label {
+  display: block;
+  margin-bottom: 6px;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+}
+
+.search__input {
+  width: 100%;
+  padding: 11px 13px;
+  font-family: var(--sans);
+  font-size: 16px;          /* 16px keeps iOS from zooming on focus */
+  color: var(--ink);
+  background: var(--card);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
+  transition: border-color 0.15s var(--ease), box-shadow 0.15s var(--ease);
+}
+
+.search__input::placeholder { color: var(--ink-faint); }
+
+.search__input:hover { border-color: var(--ink-faint); }
+
+.search__input:focus {
+  outline: none;
+  border-color: var(--ink);
+  box-shadow: 0 0 0 3px rgba(20, 26, 46, 0.12);
+}
+
+.search__button {
+  position: relative;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-width: 132px;
+  padding: 11px 18px;
+  font-family: var(--sans);
+  font-size: 14.5px;
+  font-weight: 550;
+  letter-spacing: -0.005em;
+  color: var(--card);
+  background: var(--ink);
+  border: 1px solid var(--ink);
+  border-radius: var(--radius);
+  cursor: pointer;
+  transition: background-color 0.15s var(--ease), transform 0.12s var(--ease);
+}
+
+.search__button:hover:not(:disabled) { background: #232b45; }
+.search__button:active:not(:disabled) { transform: translateY(1px); }
+
+.search__button:disabled {
+  cursor: progress;
+  background: var(--ink-soft);
+  border-color: var(--ink-soft);
+}
+
+.search__spinner { display: none; }
+
+.search__button[data-loading="true"] .search__spinner {
+  display: block;
+  width: 13px; height: 13px;
+  border: 1.8px solid rgba(253, 253, 254, 0.35);
+  border-top-color: var(--card);
+  border-radius: 50%;
+  animation: spin 0.65s linear infinite;
+}
+
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.search__hint {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin: 14px 0 0;
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+}
+
+.chip {
+  padding: 4px 9px;
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.05em;
+  color: var(--ink-soft);
+  background: transparent;
+  border: 1px solid var(--rule);
+  border-radius: 100px;
+  cursor: pointer;
+  transition: color 0.15s var(--ease), border-color 0.15s var(--ease), background-color 0.15s var(--ease);
+}
+
+.chip:hover {
+  color: var(--ink);
+  background: var(--card);
+  border-color: var(--ink-faint);
+}
+
+/* ---------------- Stage ---------------- */
+
+/* Reserving height here is what stops the page jumping between the
+   empty, loading and result states. The value tracks the height of a
+   rendered reading card. */
+.stage__slot { min-height: 690px; }
+
+/* ---------------- Empty state ---------------- */
+
+.empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  min-height: 690px;
+  padding: 32px;
+  text-align: center;
+  border: 1px dashed var(--rule);
+  border-radius: var(--radius);
+}
+
+.empty__mark { color: var(--ink-faint); opacity: 0.75; }
+
+.empty__text {
+  margin: 0;
+  max-width: 34ch;
+  font-family: var(--serif);
+  font-size: 16.5px;
+  line-height: 1.55;
+  color: var(--ink-soft);
+}
+
+/* ---------------- Reading card ---------------- */
+
+.reading {
+  background: var(--card);
+  border: 1px solid var(--rule-soft);
+  border-top: 3px solid var(--accent);
+  border-radius: var(--radius);
+  box-shadow: 0 1px 2px rgba(20, 26, 46, 0.05), 0 8px 24px -12px rgba(20, 26, 46, 0.16);
+  overflow: hidden;
+  animation: rise 0.42s var(--ease);
+}
+
+/* Transform only, never opacity: a stalled or suppressed animation must
+   never leave the reading invisible. */
+@keyframes rise {
+  from { transform: translateY(10px); }
+  to   { transform: none; }
+}
+
+.reading__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 20px 26px 16px;
+  border-bottom: 1px solid var(--rule-soft);
+}
+
+.reading__city {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 620;
+  letter-spacing: -0.022em;
+}
+
+.reading__country {
+  font-weight: 420;
+  color: var(--ink-faint);
+}
+
+.reading__stamp {
+  margin: 0;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+}
+
+.reading__body {
+  display: grid;
+  grid-template-columns: 1.25fr 1fr;
+  align-items: center;
+  gap: 28px;
+  padding: 30px 26px;
+}
+
+/* --- Temperature: the visual focus --- */
+
+.temp {
+  /* A <p> at ~113px would otherwise inherit a 1em default margin. */
+  margin: 0;
+  display: flex;
+  align-items: flex-start;
+  font-size: clamp(76px, 15.5vw, 122px);
+  font-weight: 660;
+  line-height: 0.86;
+  letter-spacing: -0.05em;
+  font-variant-numeric: tabular-nums lining-nums;
+  color: var(--accent);
+}
+
+.temp__unit {
+  margin-top: 0.42em;
+  margin-left: 0.06em;
+  font-size: 0.245em;
+  font-weight: 520;
+  letter-spacing: 0.02em;
+  color: var(--ink-faint);
+}
+
+.condition {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin: 16px 0 0;
+  font-size: 16.5px;
+  font-weight: 520;
+  letter-spacing: -0.008em;
+  color: var(--ink);
+}
+
+.condition__glyph { flex: none; color: var(--accent); }
+
+/* --- Metrics --- */
+
+.metrics {
+  display: grid;
+  gap: 1px;
+  margin: 0;
+  background: var(--rule-soft);
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+.metric { padding: 13px 15px; background: var(--card); }
+
+.metric dt {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+}
+
+.metric dd {
+  margin: 5px 0 0;
+  font-size: 22px;
+  font-weight: 580;
+  letter-spacing: -0.024em;
+  font-variant-numeric: tabular-nums;
+}
+
+.metric dd span {
+  margin-left: 3px;
+  font-size: 12px;
+  font-weight: 460;
+  letter-spacing: 0;
+  color: var(--ink-faint);
+}
+
+/* --- Signature: the feels-like delta scale --- */
+
+.delta {
+  padding: 22px 26px 26px;
+  background: var(--accent-wash);
+  border-top: 1px solid var(--rule-soft);
+  border-bottom: 1px solid var(--rule-soft);
+}
+
+.delta__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 6px;
+  margin-bottom: 20px;
+}
+
+.delta__title {
+  margin: 0;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  font-weight: 500;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+}
+
+.delta__verdict {
+  margin: 0;
+  font-family: var(--serif);
+  font-style: italic;
+  font-size: 14.5px;
+  color: var(--ink);
+}
+
+.delta__verdict b {
+  font-style: normal;
+  font-weight: 620;
+  font-variant-numeric: tabular-nums;
+  color: var(--accent);
+}
+
+.delta__scale {
+  position: relative;
+  height: 3px;
+  margin: 0 2px;
+  background: linear-gradient(to right, var(--rule), var(--ink-faint));
+  border-radius: 2px;
+}
+
+.delta__marker {
+  position: absolute;
+  top: 50%;
+  /* --pos is set inline by app.js from a fixed 0–50 °C domain, so a
+     marker sits in the same place for the same temperature every time.
+     The resting value is the final position and the keyframes only
+     animate towards it, so the reading stays correct even when the
+     animation is suppressed or never runs. */
+  left: var(--pos, 0%);
+  transform: translate(-50%, -50%);
+  /* No fill mode on purpose: the resting style is already the correct
+     reading, so if the animation is suppressed or never starts the
+     marker still sits at the right temperature. */
+  animation: marker-in 0.45s var(--ease);
+}
+
+@keyframes marker-in {
+  from { transform: translate(-50%, -50%) scale(0.4); }
+  to   { transform: translate(-50%, -50%) scale(1); }
+}
+
+.delta__dot {
+  display: block;
+  width: 13px; height: 13px;
+  background: var(--card);
+  border: 3px solid var(--ink);
+  border-radius: 50%;
+}
+
+.delta__marker--feels .delta__dot {
+  border-color: var(--accent);
+  background: var(--accent);
+}
+
+.delta__flag {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  color: var(--ink-soft);
+}
+
+.delta__marker--actual .delta__flag { bottom: 16px; }
+.delta__marker--feels .delta__flag { top: 16px; color: var(--accent); }
+
+.delta__flag b {
+  font-weight: 620;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+
+.delta__marker--feels .delta__flag b { color: var(--accent); }
+
+.delta__axis {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 34px;
+  font-family: var(--mono);
+  font-size: 9.5px;
+  letter-spacing: 0.08em;
+  color: var(--ink-faint);
+}
+
+/* Keeps the upper flag from colliding with the section heading. */
+.delta__scale { margin-top: 26px; }
+
+/* --- The written half --- */
+
+.summary { padding: 24px 26px; }
+
+.summary__title {
+  margin: 0 0 10px;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  font-weight: 500;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+}
+
+.summary__text {
+  margin: 0;
+  padding-left: 16px;
+  border-left: 2px solid var(--accent);
+  font-family: var(--serif);
+  font-size: 17px;
+  line-height: 1.62;
+  letter-spacing: -0.003em;
+  color: var(--ink);
+}
+
+.reading__foot {
+  margin: 0;
+  padding: 13px 26px;
+  background: var(--paper-deep);
+  border-top: 1px solid var(--rule-soft);
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+}
+
+/* ---------------- Loading skeleton ---------------- */
+
+/* Mirrors the reading card's structure so the swap doesn't reflow. */
+.skeleton {
+  background: var(--card);
+  border: 1px solid var(--rule-soft);
+  border-top: 3px solid var(--rule);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+.skeleton__head {
+  padding: 20px 26px 16px;
+  border-bottom: 1px solid var(--rule-soft);
+}
+
+.skeleton__body {
+  display: grid;
+  grid-template-columns: 1.25fr 1fr;
+  gap: 28px;
+  padding: 30px 26px;
+}
+
+.skeleton__delta {
+  min-height: 149px;
+  padding: 22px 26px 26px;
+  border-top: 1px solid var(--rule-soft);
+  border-bottom: 1px solid var(--rule-soft);
+}
+
+.skeleton__summary {
+  min-height: 129px;
+  padding: 24px 26px;
+}
+
+.bone {
+  background: linear-gradient(90deg, var(--rule-soft) 25%, var(--paper) 50%, var(--rule-soft) 75%);
+  background-size: 200% 100%;
+  border-radius: 2px;
+  animation: sweep 1.35s var(--ease) infinite;
+}
+
+@keyframes sweep {
+  from { background-position: 200% 0; }
+  to   { background-position: -200% 0; }
+}
+
+/* Heights are matched to the corresponding elements in the reading card. */
+.bone--city       { width: 38%; height: 18px; }
+.bone--stamp      { width: 30%; height: 10px; margin-top: 6px; }
+.bone--temp       { width: 72%; height: 97px; }
+.bone--cond       { width: 52%; height: 25px; margin-top: 16px; }
+.bone--metric     { height: 81px; }
+.bone--delta-head { width: 66%; height: 14px; margin-bottom: 20px; }
+.bone--scale      { height: 3px; margin: 26px 2px 34px; }
+.bone--title      { width: 34%; height: 11px; margin-bottom: 10px; }
+.bone--line       { height: 15px; margin-bottom: 9px; }
+.bone--line-2     { width: 92%; }
+.bone--line-3     { width: 64%; margin-bottom: 0; }
+
+/* Shown only at the narrow breakpoint, where the text wraps further. */
+.bone--line-4,
+.bone--line-5     { display: none; }
+
+.skeleton__metrics { display: grid; gap: 1px; }
+
+.skeleton__foot {
+  height: 42px;
+  background: var(--paper-deep);
+  border-top: 1px solid var(--rule-soft);
+}
+
+/* ---------------- Error state ---------------- */
+
+.error {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  min-height: 690px;
+  padding: 36px 28px;
+  text-align: center;
+  background: var(--card);
+  border: 1px solid var(--rule-soft);
+  border-top: 3px solid var(--danger);
+  border-radius: var(--radius);
+  animation: rise 0.32s var(--ease);
+}
+
+.error__code {
+  margin: 0;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--danger);
+}
+
+.error__title {
+  margin: 0;
+  font-size: 21px;
+  font-weight: 620;
+  letter-spacing: -0.022em;
+}
+
+.error__text {
+  margin: 0;
+  max-width: 40ch;
+  font-family: var(--serif);
+  font-size: 16px;
+  line-height: 1.55;
+  color: var(--ink-soft);
+}
+
+/* ---------------- Colophon ---------------- */
+
+.colophon {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 40px;
+  padding-top: 18px;
+  border-top: 1px solid var(--rule);
+  font-family: var(--mono);
+  font-size: 10.5px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+}
+
+.colophon p { margin: 0; }
+.colophon__src { color: var(--ink-soft); }
+
+.colophon__link {
+  color: var(--ink-soft);
+  text-decoration: none;
+  border-bottom: 1px solid var(--rule);
+  transition: color 0.15s var(--ease), border-color 0.15s var(--ease);
+}
+
+.colophon__link:hover {
+  color: var(--ink);
+  border-color: var(--ink);
+}
+
+/* ---------------- Responsive ---------------- */
+
+@media (max-width: 760px) {
+  .reading__body,
+  .skeleton__body {
+    grid-template-columns: 1fr;
+    gap: 24px;
+  }
+
+  .metrics { grid-template-columns: repeat(3, 1fr); }
+  .skeleton__metrics { grid-template-columns: repeat(3, 1fr); }
+}
+
+@media (max-width: 560px) {
+  .shell { padding: 28px 16px 48px; }
+
+  .search__form {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+  }
+
+  .search__button { width: 100%; }
+
+  .reading__head,
+  .reading__body,
+  .delta,
+  .summary,
+  .reading__foot,
+  .skeleton__head,
+  .skeleton__body,
+  .skeleton__delta,
+  .skeleton__summary {
+    padding-left: 18px;
+    padding-right: 18px;
+  }
+
+  .metrics { grid-template-columns: 1fr; }
+  .skeleton__metrics { grid-template-columns: 1fr; }
+
+  /* Narrow screens wrap the heading, the delta label and the
+     explanation, so the skeleton is re-matched to those heights. */
+  .bone--line-4,
+  .bone--line-5 { display: block; }
+
+  .bone--line-3 { width: 88%; margin-bottom: 9px; }
+  .bone--line-5 { width: 58%; margin-bottom: 0; }
+
+  .bone--temp { height: 65px; }
+
+  .skeleton__head    { min-height: 91px; }
+  .skeleton__delta   { min-height: 170px; }
+  .skeleton__summary { min-height: 211px; }
+
+  .stage__slot,
+  .empty,
+  .error { min-height: 950px; }
+
+  .colophon { flex-direction: column; align-items: flex-start; }
+}
+
+/* ---------------- Reduced motion ---------------- */
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

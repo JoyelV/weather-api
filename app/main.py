@@ -1,7 +1,15 @@
+from pathlib import Path
+
 from fastapi import FastAPI, HTTPException, Query
+from fastapi.staticfiles import StaticFiles
+
 from app.weather import NOT_FOUND, get_weather
 from app.llm import explain_weather
 from app.models import WeatherResponse
+
+# Resolved from this file rather than the working directory, so the app
+# imports and serves the frontend no matter where uvicorn is started from.
+FRONTEND_DIR = Path(__file__).resolve().parent.parent / "frontend"
 
 app = FastAPI(
     title="Weather AI API",
@@ -9,8 +17,8 @@ app = FastAPI(
     version="1.0.0",
 )
 
-@app.get("/")
-def home():
+@app.get("/health")
+def health():
     return {
         "message": "Weather AI API is running!"
     }
@@ -55,3 +63,12 @@ def weather(city: str = Query(..., min_length=1)):
         "weather": weather_data["weather"],
         "explanation": explanation,
     }
+
+
+# Mounted last so /health, /weather and the /docs routes keep priority over
+# the catch-all. html=True serves frontend/index.html at "/".
+app.mount(
+    "/",
+    StaticFiles(directory=FRONTEND_DIR, html=True),
+    name="frontend",
+)
