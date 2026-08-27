@@ -1,5 +1,4 @@
-from fastapi import FastAPI, HTTPException
-
+from fastapi import FastAPI, HTTPException, Query
 from app.weather import get_weather
 from app.llm import explain_weather
 from app.models import WeatherResponse
@@ -15,7 +14,14 @@ def home():
 
 
 @app.get("/weather", response_model=WeatherResponse)
-def weather(city: str):
+def weather(city: str = Query(..., min_length=1)):
+    city = city.strip()
+
+    if not city:
+        raise HTTPException(
+         status_code=422,
+         detail="City cannot be empty."
+       )
     weather_data = get_weather(city)
 
     if "error" in weather_data:
