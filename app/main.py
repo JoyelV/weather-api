@@ -3,8 +3,11 @@ from app.weather import get_weather
 from app.llm import explain_weather
 from app.models import WeatherResponse
 
-app = FastAPI()
-
+app = FastAPI(
+    title="Weather AI API",
+    description="A FastAPI service that retrieves weather data and generates AI-powered weather explanations.",
+    version="1.0.0",
+)
 
 @app.get("/")
 def home():
