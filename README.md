@@ -1,13 +1,15 @@
 # Weather AI API
 
-A beginner-friendly weather API built with Python, FastAPI, LangChain, and Google Gemini.
+A weather app built with Python, FastAPI, LangChain, and Google Gemini.
 
 The application fetches real-time weather data from [Open-Meteo](https://open-meteo.com/)
 and uses Google Gemini (through LangChain) to turn that data into a simple,
-human-readable weather explanation.
+human-readable weather explanation. It ships with a small browser front end that
+renders the reading and the explanation together.
 
 ## Features
 
+- Browser front end served by the API itself, with loading, empty and error states
 - Look up current weather by city name
 - Geocode Indian cities using the Open-Meteo geocoding API
 - Return temperature, feels-like temperature, humidity, wind speed and weather code
@@ -27,6 +29,7 @@ human-readable weather explanation.
 - Open-Meteo (weather and geocoding data)
 - httpx
 - Pydantic
+- Vanilla HTML, CSS and JavaScript (no build step)
 - pytest
 - Docker
 
@@ -35,10 +38,14 @@ human-readable weather explanation.
 ```text
 weather-api/
 ├── app/
-│   ├── main.py      # FastAPI app and routes
+│   ├── main.py      # FastAPI app, routes and static file mount
 │   ├── weather.py   # Open-Meteo geocoding and weather calls
 │   ├── llm.py       # LangChain + Google Gemini explanation
 │   └── models.py    # Pydantic response models
+├── frontend/
+│   ├── index.html   # Page markup
+│   ├── styles.css   # Styles
+│   └── app.js       # Fetches /weather and renders the reading
 ├── tests/
 │   └── test_weather.py
 ├── .github/
@@ -72,6 +79,11 @@ GOOGLE_API_KEY=your-google-api-key-here
 `GOOGLE_API_KEY` is the only environment variable the application uses. `.env` is listed
 in `.gitignore` and `.dockerignore`, so your key is never committed or copied into the
 Docker image.
+
+> **Note on Gemini quotas.** The free tier allows a limited number of
+> `generateContent` requests per day. Once that quota is used up, Gemini returns
+> `429 RESOURCE_EXHAUSTED` and `/weather` responds with `503` until the quota
+> resets. See https://ai.google.dev/gemini-api/docs/rate-limits for current limits.
 
 ## Local Development Setup
 
@@ -115,7 +127,7 @@ pip install -r requirements.txt
 
 4. Create your `.env` file as described in [Environment Variables](#environment-variables).
 
-## Running the API
+## Running the App
 
 Start the development server with Uvicorn:
 
@@ -123,18 +135,33 @@ Start the development server with Uvicorn:
 uvicorn app.main:app --reload
 ```
 
-The API is then available at http://127.0.0.1:8000.
+Then open http://127.0.0.1:8000 in a browser for the web interface.
 
-FastAPI also serves interactive documentation at http://127.0.0.1:8000/docs.
+FastAPI also serves interactive API documentation at http://127.0.0.1:8000/docs.
+
+## Web Interface
+
+The front end in `frontend/` is plain HTML, CSS and JavaScript with no build step.
+`app/main.py` mounts it with Starlette's `StaticFiles`, so the same Uvicorn process
+serves both the UI and the API and there is no CORS configuration to manage.
+
+The page takes a city name, calls `GET /weather`, and renders the current reading —
+temperature, condition, feels-like, humidity and wind — alongside the Gemini
+explanation. It also has a loading skeleton, an empty state, and per-status error
+states for `404`, `422` and `503`.
 
 ## API Endpoints
 
 ### `GET /`
 
+Serves the web interface (`frontend/index.html`).
+
+### `GET /health`
+
 A simple health check that confirms the service is running.
 
 ```bash
-curl "http://127.0.0.1:8000/"
+curl "http://127.0.0.1:8000/health"
 ```
 
 ```json
@@ -210,7 +237,8 @@ the GitHub Actions workflow in `.github/workflows/tests.yml`.
 ## Docker
 
 The included `Dockerfile` builds on `python:3.13-slim`, installs the dependencies from
-`requirements.txt`, copies the `app` package, exposes port `8000`, and starts Uvicorn.
+`requirements.txt`, copies the `app` package and the `frontend` directory, exposes port
+`8000`, and starts Uvicorn.
 
 Build the image:
 
@@ -224,11 +252,12 @@ Run the container, passing your `.env` file so the app can read `GOOGLE_API_KEY`
 docker run --env-file .env -p 8000:8000 weather-api
 ```
 
-The API is then available at http://127.0.0.1:8000.
+The app is then available at http://127.0.0.1:8000.
 
 ## How It Works
 
-1. A request arrives at `GET /weather?city=<city>` in `app/main.py`.
+1. The browser loads the front end from `/`, served by the static file mount in
+   `app/main.py`, and `frontend/app.js` calls `GET /weather?city=<city>`.
 2. `app/weather.py` geocodes the city with the Open-Meteo geocoding API to get its
    latitude and longitude, then requests the current weather from the Open-Meteo
    forecast API and maps the numeric weather code to a readable condition.
@@ -236,3 +265,5 @@ The API is then available at http://127.0.0.1:8000.
    Gemini, which returns a short plain-language explanation.
 4. `app/main.py` combines the weather data and the explanation into a `WeatherResponse`
    defined in `app/models.py` and returns it as JSON.
+5. `frontend/app.js` renders that payload as the reading card, or renders a matching
+   error state if the request failed.
