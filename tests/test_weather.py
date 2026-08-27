@@ -1,5 +1,12 @@
+import os
+import subprocess
+import sys
+import tempfile
+import textwrap
+
 import httpx
 
+from pathlib import Path
 from unittest.mock import patch
 
 from fastapi.testclient import TestClient
@@ -183,3 +190,57 @@ def test_ai_service_unavailable():
     assert response.json() == {
         "detail": "AI weather service is currently unavailable."
     }
+
+
+def test_app_imports_without_gemini_api_key():
+    """app.main must import when no Gemini API key is present.
+
+    Regression test: app/llm.py used to build ChatGoogleGenerativeAI at module
+    import time, so importing app.main raised a pydantic ValidationError
+    wherever GOOGLE_API_KEY was unset. That broke pytest collection in CI
+    before a single test could run.
+
+    The import happens in a fresh subprocess whose working directory is the
+    system temp directory, so the repository .env is not discovered and no
+    real Gemini call is ever made.
+    """
+    project_root = Path(__file__).resolve().parents[1]
+
+    env = {
+        key: value
+        for key, value in os.environ.items()
+        if key not in ("GOOGLE_API_KEY", "GEMINI_API_KEY")
+    }
+    env["PYTHONPATH"] = str(project_root)
+
+    code = textwrap.dedent(
+        """
+        import os
+
+        assert "GOOGLE_API_KEY" not in os.environ
+        assert "GEMINI_API_KEY" not in os.environ
+
+        import app.main
+        from app.llm import get_llm
+
+        # A .env on disk must not quietly re-supply the key and mask a failure.
+        assert "GOOGLE_API_KEY" not in os.environ, "GOOGLE_API_KEY got loaded"
+        assert "GEMINI_API_KEY" not in os.environ, "GEMINI_API_KEY got loaded"
+
+        # The client must not be built as a side effect of importing.
+        assert get_llm.cache_info().currsize == 0, "client built at import time"
+
+        print("IMPORT_OK")
+        """
+    )
+
+    result = subprocess.run(
+        [sys.executable, "-c", code],
+        cwd=tempfile.gettempdir(),
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "IMPORT_OK" in result.stdout

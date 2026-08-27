@@ -1,4 +1,5 @@
 import os
+from functools import lru_cache
 
 from dotenv import load_dotenv
 from langchain_google_genai import ChatGoogleGenerativeAI
@@ -8,10 +9,17 @@ from langchain_core.prompts import ChatPromptTemplate
 load_dotenv()
 
 
-llm = ChatGoogleGenerativeAI(
-    model="gemini-3.6-flash",
-    google_api_key=os.getenv("GOOGLE_API_KEY"),
-)
+@lru_cache(maxsize=1)
+def get_llm() -> ChatGoogleGenerativeAI:
+    """Create the Gemini client on first use, then reuse it.
+
+    Building the client at import time would require GOOGLE_API_KEY
+    just to import this module.
+    """
+    return ChatGoogleGenerativeAI(
+        model="gemini-3.6-flash",
+        google_api_key=os.getenv("GOOGLE_API_KEY"),
+    )
 
 
 prompt = ChatPromptTemplate.from_messages([
@@ -69,7 +77,7 @@ def explain_weather(weather_data: dict):
         condition=weather["condition"],
     )
 
-    response = llm.invoke(messages)
+    response = get_llm().invoke(messages)
 
     content = response.content
 
