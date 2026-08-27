@@ -1,17 +1,16 @@
 import os
 
 from dotenv import load_dotenv
-from langchain_anthropic import ChatAnthropic
+from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.prompts import ChatPromptTemplate
 
 
 load_dotenv()
 
 
-llm = ChatAnthropic(
-    model="claude-sonnet-4-5",
-    temperature=0.3,
-    api_key=os.getenv("ANTHROPIC_API_KEY"),
+llm = ChatGoogleGenerativeAI(
+    model="gemini-3.6-flash",
+    google_api_key=os.getenv("GOOGLE_API_KEY"),
 )
 
 
@@ -72,4 +71,17 @@ def explain_weather(weather_data: dict):
 
     response = llm.invoke(messages)
 
-    return response.content
+    content = response.content
+
+    if isinstance(content, str):
+        return content
+
+    if isinstance(content, list):
+        text_parts = [
+            item.get("text", "")
+            for item in content
+            if isinstance(item, dict) and item.get("type") == "text"
+        ]
+        return "".join(text_parts).strip()
+
+    return str(content)
