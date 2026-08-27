@@ -155,22 +155,27 @@ def test_both_providers_receive_the_same_prompt():
         assert value in human.content
 
 
-@pytest.mark.parametrize("failing_provider", ["gemini", "groq"])
-def test_string_response_is_returned_as_is(failing_provider):
+@pytest.mark.parametrize("answering_provider", ["gemini", "groq"])
+def test_string_response_is_returned_as_is(answering_provider):
     """The string path is preserved on whichever provider answers."""
     gemini = _fake_client("plain string answer")
     groq = _fake_client("plain string answer")
 
-    if failing_provider == "gemini":
+    # Groq only ever answers after Gemini has failed, so the Groq case has
+    # to knock Gemini out or the fallback path is never reached.
+    if answering_provider == "groq":
         gemini.invoke.side_effect = RuntimeError("gemini down")
 
     with patch("app.llm.get_llm", return_value=gemini):
         with patch("app.llm.get_groq_llm", return_value=groq):
             assert explain_weather(WEATHER_DATA) == "plain string answer"
 
+    # Guards against the parametrisation silently testing Gemini twice.
+    assert groq.invoke.called is (answering_provider == "groq")
 
-@pytest.mark.parametrize("failing_provider", ["gemini", "groq"])
-def test_multipart_response_is_joined(failing_provider):
+
+@pytest.mark.parametrize("answering_provider", ["gemini", "groq"])
+def test_multipart_response_is_joined(answering_provider):
     """The list path is preserved on whichever provider answers."""
     multipart = [
         {"type": "text", "text": " Kochi is 25.2°C"},
@@ -182,7 +187,9 @@ def test_multipart_response_is_joined(failing_provider):
     gemini = _fake_client(multipart)
     groq = _fake_client(multipart)
 
-    if failing_provider == "gemini":
+    # Groq only ever answers after Gemini has failed, so the Groq case has
+    # to knock Gemini out or the fallback path is never reached.
+    if answering_provider == "groq":
         gemini.invoke.side_effect = RuntimeError("gemini down")
 
     with patch("app.llm.get_llm", return_value=gemini):
@@ -190,6 +197,9 @@ def test_multipart_response_is_joined(failing_provider):
             result = explain_weather(WEATHER_DATA)
 
     assert result == "Kochi is 25.2°C with moderate drizzle."
+
+    # Guards against the parametrisation silently testing Gemini twice.
+    assert groq.invoke.called is (answering_provider == "groq")
 
 
 def test_neither_client_is_built_without_api_keys():
@@ -260,5 +270,53 @@ def test_groq_client_is_cached_and_reads_the_key_from_the_environment():
         )
         assert first is second
         assert get_groq_llm.cache_info().currsize == 1
+    finally:
+        get_groq_llm.cache_clear()
+
+
+def test_fallback_without_a_groq_api_key_fails_closed():
+    """The state of any deployment that has not added GROQ_API_KEY yet.
+
+    get_groq_llm is deliberately left unpatched so the real ChatGroq
+    constructor runs and raises on the missing key. Construction is purely
+    local -- no client is ever built, so no request reaches either provider.
+    """
+    from app.llm import get_groq_llm
+
+    gemini = _fake_client(None)
+    gemini.invoke.side_effect = RuntimeError("gemini down")
+
+    get_groq_llm.cache_clear()
+
+    try:
+        with patch.dict(os.environ):
+            os.environ.pop("GROQ_API_KEY", None)
+
+            with patch("app.llm.get_llm", return_value=gemini):
+                # explain_weather surfaces the construction failure ...
+                with pytest.raises(Exception) as excinfo:
+                    explain_weather(WEATHER_DATA)
+
+                # Proves the failure is Groq's missing-key construction error,
+                # not the Gemini error leaking through untouched.
+                assert "api_key" in str(excinfo.value).lower()
+
+                # ... and the endpoint turns it into the existing 503.
+                with patch("app.main.get_weather", return_value=WEATHER_DATA):
+                    response = client.get("/weather", params={"city": "Kochi"})
+
+        assert gemini.invoke.call_count == 2
+
+        assert response.status_code == 503
+        assert response.json() == {
+            "detail": "AI weather service is currently unavailable."
+        }
+
+        # No key name, key value, or provider internals reach the caller.
+        for leak in ("GROQ_API_KEY", "api_key", "GroqError", "gemini down"):
+            assert leak not in response.text
+
+        # A failed construction must not be memoised as a usable client.
+        assert get_groq_llm.cache_info().currsize == 0
     finally:
         get_groq_llm.cache_clear()

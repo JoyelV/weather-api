@@ -23,6 +23,10 @@ def get_llm() -> ChatGoogleGenerativeAI:
     return ChatGoogleGenerativeAI(
         model="gemini-3.6-flash",
         google_api_key=os.getenv("GOOGLE_API_KEY"),
+        # One attempt, no internal backoff. The client's default of 6 retries
+        # sleeps ~32s on a 429 before the error surfaces, and a 429 means the
+        # quota is gone, not that a retry will help. Groq is the retry.
+        max_retries=1,
     )
 
 
