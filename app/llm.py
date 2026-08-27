@@ -1,12 +1,16 @@
+import logging
 import os
 from functools import lru_cache
 
 from dotenv import load_dotenv
 from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_groq import ChatGroq
 from langchain_core.prompts import ChatPromptTemplate
 
 
 load_dotenv()
+
+logger = logging.getLogger(__name__)
 
 
 @lru_cache(maxsize=1)
@@ -19,6 +23,19 @@ def get_llm() -> ChatGoogleGenerativeAI:
     return ChatGoogleGenerativeAI(
         model="gemini-3.6-flash",
         google_api_key=os.getenv("GOOGLE_API_KEY"),
+    )
+
+
+@lru_cache(maxsize=1)
+def get_groq_llm() -> ChatGroq:
+    """Create the Groq fallback client on first use, then reuse it.
+
+    Cached separately from get_llm so a deployment without GROQ_API_KEY
+    still imports and still serves Gemini explanations.
+    """
+    return ChatGroq(
+        model="llama-3.1-8b-instant",
+        api_key=os.getenv("GROQ_API_KEY"),
     )
 
 
@@ -77,7 +94,25 @@ def explain_weather(weather_data: dict):
         condition=weather["condition"],
     )
 
-    response = get_llm().invoke(messages)
+    try:
+        response = get_llm().invoke(messages)
+    except Exception:
+        # exc_info gives the provider error and traceback; neither carries
+        # the API key, which the clients only ever send as a header.
+        logger.warning(
+            "Gemini weather explanation failed; attempting Groq fallback",
+            exc_info=True,
+        )
+
+        try:
+            # The same formatted messages, so the fallback answers the same
+            # prompt under the same system instructions.
+            response = get_groq_llm().invoke(messages)
+        except Exception:
+            logger.error("Groq weather explanation failed", exc_info=True)
+            # Both providers are down: raise as before and let the caller
+            # turn it into the existing 503.
+            raise
 
     content = response.content
 
