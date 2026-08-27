@@ -1,4 +1,7 @@
 import httpx
+from pydantic import BaseModel, ValidationError
+
+from app.models import WeatherData
 
 
 WEATHER_CODES = {
@@ -26,6 +29,19 @@ WEATHER_CODES = {
 }
 
 
+# Why the upstream call failed, so the API layer can pick a status code.
+NOT_FOUND = "not_found"
+UNAVAILABLE = "unavailable"
+
+class _Location(BaseModel):
+    """The part of an Open-Meteo geocoding hit this service relies on."""
+
+    name: str
+    country: str
+    latitude: float
+    longitude: float
+
+
 def get_weather(city: str):
     # 1. Find the city
     geocoding_url = "https://geocoding-api.open-meteo.com/v1/search"
@@ -47,29 +63,67 @@ def get_weather(city: str):
         geocoding_response.raise_for_status()
     except httpx.RequestError:
         return {
-            "error": "Weather service is currently unavailable."
+            "error": "Weather service is currently unavailable.",
+            "reason": UNAVAILABLE,
         }
     except httpx.HTTPStatusError:
         return {
-            "error": "Weather service returned an error."
+            "error": "Weather service returned an error.",
+            "reason": UNAVAILABLE,
         }
 
     try:
         geocoding_data = geocoding_response.json()
     except ValueError:
         return {
-             "error": "Weather service returned an invalid response."
+            "error": "Weather service returned an invalid response.",
+            "reason": UNAVAILABLE,
         }
 
-    if "results" not in geocoding_data:
+    if not isinstance(geocoding_data, dict):
         return {
-            "error": f"Could not find {city}"
+            "error": "Weather service returned an invalid response.",
+            "reason": UNAVAILABLE,
         }
 
-    location = geocoding_data["results"][0]
+    results = geocoding_data.get("results")
 
-    latitude = location["latitude"]
-    longitude = location["longitude"]
+    # Open-Meteo omits "results" entirely for a miss.
+    if results is None:
+        return {
+            "error": f"Could not find {city}",
+            "reason": NOT_FOUND,
+        }
+
+    if not isinstance(results, list):
+        return {
+            "error": "Weather service returned an invalid response.",
+            "reason": UNAVAILABLE,
+        }
+
+    # A known-empty result set is still just a miss.
+    if not results:
+        return {
+            "error": f"Could not find {city}",
+            "reason": NOT_FOUND,
+        }
+
+    if not isinstance(results[0], dict):
+        return {
+            "error": "Weather service returned an invalid response.",
+            "reason": UNAVAILABLE,
+        }
+
+    try:
+        location = _Location.model_validate(results[0])
+    except ValidationError:
+        return {
+            "error": "Weather service returned an invalid response.",
+            "reason": UNAVAILABLE,
+        }
+
+    latitude = location.latitude
+    longitude = location.longitude
 
     # 2. Get current weather
     weather_url = "https://api.open-meteo.com/v1/forecast"
@@ -96,32 +150,54 @@ def get_weather(city: str):
         weather_response.raise_for_status()
     except httpx.RequestError:
         return {
-            "error": "Weather service is currently unavailable."
+            "error": "Weather service is currently unavailable.",
+            "reason": UNAVAILABLE,
         }
     except httpx.HTTPStatusError:
         return {
-            "error": "Weather service returned an error."
+            "error": "Weather service returned an error.",
+            "reason": UNAVAILABLE,
         }
 
     try:
         weather_data = weather_response.json()
     except ValueError:
         return {
-            "error": "Weather service returned an invalid response."
-       }
+            "error": "Weather service returned an invalid response.",
+            "reason": UNAVAILABLE,
+        }
 
     # 3. Add human-readable weather condition
-    weather = weather_data["current"]
+    if not isinstance(weather_data, dict) or not isinstance(
+        weather_data.get("current"), dict
+    ):
+        return {
+            "error": "Weather service returned an invalid response.",
+            "reason": UNAVAILABLE,
+        }
+
+    try:
+        # "condition" is derived below; the placeholder completes the model.
+        validated = WeatherData.model_validate(
+            {**weather_data["current"], "condition": ""}
+        )
+    except ValidationError:
+        return {
+            "error": "Weather service returned an invalid response.",
+            "reason": UNAVAILABLE,
+        }
+
+    weather = validated.model_dump()
 
     weather["condition"] = WEATHER_CODES.get(
-        weather["weather_code"],
+        validated.weather_code,
         "Unknown",
     )
 
     # 4. Return the result
     return {
-        "city": location["name"],
-        "country": location["country"],
+        "city": location.name,
+        "country": location.country,
         "latitude": latitude,
         "longitude": longitude,
         "weather": weather,

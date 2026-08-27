@@ -1,5 +1,5 @@
 from fastapi import FastAPI, HTTPException, Query
-from app.weather import get_weather
+from app.weather import NOT_FOUND, get_weather
 from app.llm import explain_weather
 from app.models import WeatherResponse
 
@@ -28,8 +28,14 @@ def weather(city: str = Query(..., min_length=1)):
     weather_data = get_weather(city)
 
     if "error" in weather_data:
+        # A missing city is a 404; an upstream failure is not the caller's fault.
+        if weather_data.get("reason") == NOT_FOUND:
+            status_code = 404
+        else:
+            status_code = 503
+
         raise HTTPException(
-            status_code=404,
+            status_code=status_code,
             detail=weather_data["error"]
         )
 

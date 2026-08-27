@@ -189,9 +189,9 @@ curl "http://127.0.0.1:8000/weather?city=Kochi"
 | Code  | Meaning                                                                 |
 | ----- | ----------------------------------------------------------------------- |
 | `200` | Weather data and explanation returned successfully                       |
-| `404` | The city could not be found, or the weather service returned an error    |
+| `404` | The city could not be found                                              |
 | `422` | The `city` parameter is missing, empty, or only whitespace               |
-| `503` | The AI weather service is unavailable                                    |
+| `503` | The weather service or the AI service is unavailable                     |
 
 ## Running Tests
 
