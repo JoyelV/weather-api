@@ -1,8 +1,11 @@
+import httpx
+
 from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 
 from app.main import app
+from app.weather import get_weather
 
 
 client = TestClient(app)
@@ -94,3 +97,53 @@ def test_whitespace_city():
             mock_explain.assert_not_called()
 
     assert response.status_code == 422
+
+def test_weather_service_network_error():
+    with patch(
+        "app.weather.httpx.get",
+        side_effect=httpx.RequestError("Connection failed"),
+    ):
+        result = get_weather("Kochi")
+
+    assert result == {
+        "error": "Weather service is currently unavailable."
+    }
+
+def test_weather_service_http_error():
+    mock_response = httpx.Response(
+        status_code=500,
+        request=httpx.Request(
+            "GET",
+            "https://example.com",
+        ),
+    )
+
+    with patch(
+        "app.weather.httpx.get",
+        return_value=mock_response,
+    ):
+        result = get_weather("Kochi")
+
+    assert result == {
+        "error": "Weather service returned an error."
+    }
+
+def test_weather_service_invalid_json():
+    mock_response = httpx.Response(
+        status_code=200,
+        content=b"this is not valid json",
+        request=httpx.Request(
+            "GET",
+            "https://example.com",
+        ),
+    )
+
+    with patch(
+        "app.weather.httpx.get",
+        return_value=mock_response,
+    ):
+        result = get_weather("Kochi")
+
+    assert result == {
+        "error": "Weather service returned an invalid response."
+    }

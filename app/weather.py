@@ -54,7 +54,12 @@ def get_weather(city: str):
             "error": "Weather service returned an error."
         }
 
-    geocoding_data = geocoding_response.json()
+    try:
+        geocoding_data = geocoding_response.json()
+    except ValueError:
+        return {
+             "error": "Weather service returned an invalid response."
+        }
 
     if "results" not in geocoding_data:
         return {
@@ -98,7 +103,12 @@ def get_weather(city: str):
             "error": "Weather service returned an error."
         }
 
-    weather_data = weather_response.json()
+    try:
+        weather_data = weather_response.json()
+    except ValueError:
+        return {
+            "error": "Weather service returned an invalid response."
+       }
 
     # 3. Add human-readable weather condition
     weather = weather_data["current"]
