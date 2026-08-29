@@ -13,6 +13,12 @@ load_dotenv()
 logger = logging.getLogger(__name__)
 
 
+DEFAULT_GROQ_MODEL = "openai/gpt-oss-120b"
+FALLBACK_EXPLANATION = (
+    "Current weather data is available, but the AI explanation service is temporarily unavailable."
+)
+
+
 @lru_cache(maxsize=1)
 def get_llm() -> ChatGoogleGenerativeAI:
     """Create the Gemini client on first use, then reuse it.
@@ -37,8 +43,9 @@ def get_groq_llm() -> ChatGroq:
     Cached separately from get_llm so a deployment without GROQ_API_KEY
     still imports and still serves Gemini explanations.
     """
+    model = os.getenv("GROQ_MODEL", DEFAULT_GROQ_MODEL)
     return ChatGroq(
-        model="llama-3.1-8b-instant",
+        model=model,
         api_key=os.getenv("GROQ_API_KEY"),
     )
 

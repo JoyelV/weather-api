@@ -161,7 +161,7 @@ def test_weather_service_invalid_json():
         "reason": "unavailable",
     }
 
-def test_ai_service_unavailable():
+def test_ai_service_unavailable_degrades_gracefully():
     fake_weather = {
         "city": "Kochi",
         "country": "India",
@@ -192,10 +192,15 @@ def test_ai_service_unavailable():
             mock_weather.assert_called_once_with("Kochi")
             mock_explain.assert_called_once_with(fake_weather)
 
-    assert response.status_code == 503
-    assert response.json() == {
-        "detail": "AI weather service is currently unavailable."
-    }
+    assert response.status_code == 200
+    data = response.json()
+    assert data["city"] == "Kochi"
+    assert data["country"] == "India"
+    assert data["weather"]["condition"] == "Moderate drizzle"
+    assert data["weather"]["temperature_2m"] == 25.2
+    assert data["explanation"] == (
+        "Current weather data is available, but the AI explanation service is temporarily unavailable."
+    )
 
 
 def test_app_imports_without_gemini_api_key():

@@ -4,7 +4,7 @@ from fastapi import FastAPI, HTTPException, Query
 from fastapi.staticfiles import StaticFiles
 
 from app.weather import NOT_FOUND, get_weather
-from app.llm import explain_weather
+from app.llm import FALLBACK_EXPLANATION, explain_weather
 from app.models import WeatherResponse
 
 # Resolved from this file rather than the working directory, so the app
@@ -49,11 +49,10 @@ def weather(city: str = Query(..., min_length=1)):
 
     try:
         explanation = explain_weather(weather_data)
+        if not explanation or not explanation.strip():
+            explanation = FALLBACK_EXPLANATION
     except Exception:
-        raise HTTPException(
-            status_code=503,
-            detail="AI weather service is currently unavailable."
-        )
+        explanation = FALLBACK_EXPLANATION
 
     return {
         "city": weather_data["city"],

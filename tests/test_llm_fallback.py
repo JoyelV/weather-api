@@ -104,8 +104,46 @@ def test_both_providers_failing_raises(caplog):
     assert "Groq weather explanation failed" in caplog.text
 
 
-def test_both_providers_failing_returns_the_existing_503():
-    """The endpoint keeps its 503 and leaks no provider detail."""
+def test_gemini_succeeds_endpoint_returns_200_and_gemini_explanation():
+    """When Gemini succeeds, the endpoint returns 200 with Gemini explanation and does not call Groq."""
+    gemini = _fake_client("Kochi is 25.2°C with moderate drizzle.")
+    groq = _fake_client("groq answer")
+
+    with patch("app.main.get_weather", return_value=WEATHER_DATA):
+        with patch("app.llm.get_llm", return_value=gemini) as get_llm:
+            with patch("app.llm.get_groq_llm", return_value=groq) as get_groq_llm:
+                response = client.get("/weather", params={"city": "Kochi"})
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["city"] == "Kochi"
+    assert data["weather"]["temperature_2m"] == 25.2
+    assert data["explanation"] == "Kochi is 25.2°C with moderate drizzle."
+    get_llm.assert_called_once_with()
+    get_groq_llm.assert_not_called()
+
+
+def test_gemini_fails_groq_succeeds_endpoint_returns_200_and_groq_explanation():
+    """When Gemini fails and Groq succeeds, the endpoint returns 200 with Groq explanation."""
+    gemini = _fake_client(None)
+    gemini.invoke.side_effect = RuntimeError("gemini 429 quota exhausted")
+
+    groq = _fake_client("Groq fallback: Kochi is 25.2°C with moderate drizzle.")
+
+    with patch("app.main.get_weather", return_value=WEATHER_DATA):
+        with patch("app.llm.get_llm", return_value=gemini):
+            with patch("app.llm.get_groq_llm", return_value=groq):
+                response = client.get("/weather", params={"city": "Kochi"})
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["city"] == "Kochi"
+    assert data["weather"]["temperature_2m"] == 25.2
+    assert data["explanation"] == "Groq fallback: Kochi is 25.2°C with moderate drizzle."
+
+
+def test_both_providers_failing_returns_weather_with_safe_fallback():
+    """When both providers fail, the endpoint returns 200 with weather and fallback explanation."""
     gemini = _fake_client(None)
     gemini.invoke.side_effect = RuntimeError("gemini quota exhausted")
 
@@ -117,10 +155,14 @@ def test_both_providers_failing_returns_the_existing_503():
             with patch("app.llm.get_groq_llm", return_value=groq):
                 response = client.get("/weather", params={"city": "Kochi"})
 
-    assert response.status_code == 503
-    assert response.json() == {
-        "detail": "AI weather service is currently unavailable."
-    }
+    assert response.status_code == 200
+    data = response.json()
+    assert data["city"] == "Kochi"
+    assert data["country"] == "India"
+    assert data["weather"]["temperature_2m"] == 25.2
+    assert data["explanation"] == (
+        "Current weather data is available, but the AI explanation service is temporarily unavailable."
+    )
 
     assert "gemini quota exhausted" not in response.text
     assert "groq key rejected" not in response.text
@@ -252,20 +294,20 @@ def test_neither_client_is_built_without_api_keys():
     assert "IMPORT_OK" in result.stdout
 
 
-def test_groq_client_is_cached_and_reads_the_key_from_the_environment():
-    """get_groq_llm builds on first call, then reuses the same client."""
+def test_groq_client_is_cached_and_reads_the_key_and_default_model_from_the_environment():
+    """get_groq_llm builds on first call, uses default model, then reuses the same client."""
     from app.llm import get_groq_llm
 
     get_groq_llm.cache_clear()
 
     try:
-        with patch.dict(os.environ, {"GROQ_API_KEY": "test-key"}):
+        with patch.dict(os.environ, {"GROQ_API_KEY": "test-key"}, clear=True):
             with patch("app.llm.ChatGroq") as chat_groq:
                 first = get_groq_llm()
                 second = get_groq_llm()
 
         chat_groq.assert_called_once_with(
-            model="llama-3.1-8b-instant",
+            model="openai/gpt-oss-120b",
             api_key="test-key",
         )
         assert first is second
@@ -274,7 +316,26 @@ def test_groq_client_is_cached_and_reads_the_key_from_the_environment():
         get_groq_llm.cache_clear()
 
 
-def test_fallback_without_a_groq_api_key_fails_closed():
+def test_groq_client_reads_custom_groq_model_from_environment():
+    """get_groq_llm uses GROQ_MODEL when provided in environment."""
+    from app.llm import get_groq_llm
+
+    get_groq_llm.cache_clear()
+
+    try:
+        with patch.dict(os.environ, {"GROQ_API_KEY": "test-key", "GROQ_MODEL": "qwen/qwen3.6-27b"}):
+            with patch("app.llm.ChatGroq") as chat_groq:
+                get_groq_llm()
+
+        chat_groq.assert_called_once_with(
+            model="qwen/qwen3.6-27b",
+            api_key="test-key",
+        )
+    finally:
+        get_groq_llm.cache_clear()
+
+
+def test_fallback_without_a_groq_api_key_degrades_gracefully():
     """The state of any deployment that has not added GROQ_API_KEY yet.
 
     get_groq_llm is deliberately left unpatched so the real ChatGroq
@@ -301,16 +362,20 @@ def test_fallback_without_a_groq_api_key_fails_closed():
                 # not the Gemini error leaking through untouched.
                 assert "api_key" in str(excinfo.value).lower()
 
-                # ... and the endpoint turns it into the existing 503.
+                # ... and the endpoint returns 200 with weather data and safe fallback explanation.
                 with patch("app.main.get_weather", return_value=WEATHER_DATA):
                     response = client.get("/weather", params={"city": "Kochi"})
 
         assert gemini.invoke.call_count == 2
 
-        assert response.status_code == 503
-        assert response.json() == {
-            "detail": "AI weather service is currently unavailable."
-        }
+        assert response.status_code == 200
+        data = response.json()
+        assert data["city"] == "Kochi"
+        assert data["country"] == "India"
+        assert data["weather"]["temperature_2m"] == 25.2
+        assert data["explanation"] == (
+            "Current weather data is available, but the AI explanation service is temporarily unavailable."
+        )
 
         # No key name, key value, or provider internals reach the caller.
         for leak in ("GROQ_API_KEY", "api_key", "GroqError", "gemini down"):
@@ -320,3 +385,28 @@ def test_fallback_without_a_groq_api_key_fails_closed():
         assert get_groq_llm.cache_info().currsize == 0
     finally:
         get_groq_llm.cache_clear()
+
+
+def test_invalid_groq_model_configuration_degrades_gracefully():
+    """When Groq model is invalid, Groq throws NotFoundError and endpoint returns weather + fallback explanation."""
+    gemini = _fake_client(None)
+    gemini.invoke.side_effect = RuntimeError("gemini quota exhausted")
+
+    groq = _fake_client(None)
+    groq.invoke.side_effect = RuntimeError("model_not_found: The model `invalid-model` does not exist")
+
+    with patch("app.main.get_weather", return_value=WEATHER_DATA):
+        with patch("app.llm.get_llm", return_value=gemini):
+            with patch("app.llm.get_groq_llm", return_value=groq):
+                response = client.get("/weather", params={"city": "Kochi"})
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["city"] == "Kochi"
+    assert data["country"] == "India"
+    assert data["weather"]["temperature_2m"] == 25.2
+    assert data["explanation"] == (
+        "Current weather data is available, but the AI explanation service is temporarily unavailable."
+    )
+    assert "model_not_found" not in response.text
+    assert "invalid-model" not in response.text
